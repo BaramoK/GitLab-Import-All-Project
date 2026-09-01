@@ -22,6 +22,10 @@ BASE_URL=$(echo "$GROUP_URL" | awk -F/ '{print $1 "//" $3}')
 GROUP_PATH=$(echo "$GROUP_URL" | sed -E 's#https?://[^/]+/##')
 ENCODED_GROUP_PATH=$(echo "$GROUP_PATH" | sed 's/\//%2F/g')
 
+# Détecter le chemin du script pour trouver convert-to-utf8.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONVERT_SCRIPT="$SCRIPT_DIR/convert-to-utf8.sh"
+
 echo "🌍 Serveur : $BASE_URL"
 echo "📦 Groupe  : $GROUP_PATH"
 
@@ -43,7 +47,18 @@ while true; do
 
     while read -r repo; do
         echo "Clonage $repo"
-        git clone "$repo" && echo "  ✅ Cloné avec succès" || echo "  ❌ Échec du clonage de $repo" >&2
+        if git clone "$repo"; then
+            echo "  ✅ Cloné avec succès"
+            repo_dir=$(basename "$repo" .git)
+            if [ -x "$CONVERT_SCRIPT" ]; then
+                echo "  🔄 Conversion UTF-8 en cours pour $repo_dir..."
+                "$CONVERT_SCRIPT" "$repo_dir" || echo "  ⚠️ Échec de la conversion UTF-8 pour $repo_dir" >&2
+            else
+                echo "  ⚠️ convert-to-utf8.sh non trouvé à $CONVERT_SCRIPT" >&2
+            fi
+        else
+            echo "  ❌ Échec du clonage de $repo" >&2
+        fi
     done < <(jq -r '.[].ssh_url_to_repo' "$TMP_BODY" | grep -v '^$')
 
     page=$((page + 1))
