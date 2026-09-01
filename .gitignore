@@ -1,0 +1,16 @@
+# Fichiers temporaires
+*.tmp
+*~
+*.swp
+*.bak
+
+# Répertoires de clonage Git (si exécuté localement)
+*/
+!*/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

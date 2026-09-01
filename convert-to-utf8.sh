@@ -14,10 +14,22 @@ if [ ! -d "$TARGET_DIR" ]; then
     exit 1
 fi
 
+# Répertoire temporaire global pour éviter les conflits et les fuites
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
 echo "🔍 Scanning $TARGET_DIR"
 echo "--------------------------------"
 
-find "$TARGET_DIR" -type f | while read -r file; do
+# Utilisation de la substitution de processus (et non d'un pipe)
+# pour que les erreurs dans la boucle soient propagées au script parent.
+while IFS= read -r -d '' file; do
+
+    # Gérer les symlinks
+    if [ -L "$file" ]; then
+        echo "🔗 Symlink ignoré: $file"
+        continue
+    fi
 
     # Skip obvious binary files
     if ! file "$file" | grep -qiE 'text|utf|ascii'; then
@@ -31,39 +43,42 @@ find "$TARGET_DIR" -type f | while read -r file; do
 
     echo "⚠️ Converting: $file"
 
-    tmp="${file}.tmp"
+    tmp="$TMPDIR/$(basename "$file").tmp"
+    converted=false
 
     # Try UTF-16 (LE & BE)
     if iconv -f UTF-16 -t UTF-8 "$file" -o "$tmp" 2>/dev/null; then
         mv "$tmp" "$file"
         echo "   ✔ Converted from UTF-16"
-        continue
+        converted=true
     fi
 
     # Try ISO-8859-1
-    if iconv -f ISO-8859-1 -t UTF-8 "$file" -o "$tmp" 2>/dev/null; then
+    if [ "$converted" = false ] && iconv -f ISO-8859-1 -t UTF-8 "$file" -o "$tmp" 2>/dev/null; then
         mv "$tmp" "$file"
         echo "   ✔ Converted from ISO-8859-1"
-        continue
+        converted=true
     fi
 
     # Try Windows-1252
-    if iconv -f WINDOWS-1252 -t UTF-8 "$file" -o "$tmp" 2>/dev/null; then
+    if [ "$converted" = false ] && iconv -f WINDOWS-1252 -t UTF-8 "$file" -o "$tmp" 2>/dev/null; then
         mv "$tmp" "$file"
         echo "   ✔ Converted from WINDOWS-1252"
-        continue
+        converted=true
     fi
 
     # Last resort: force-clean invalid characters
-    if iconv -f UTF-8 -t UTF-8 -c "$file" -o "$tmp" 2>/dev/null; then
+    if [ "$converted" = false ] && iconv -f UTF-8 -t UTF-8 -c "$file" -o "$tmp" 2>/dev/null; then
         mv "$tmp" "$file"
         echo "   ⚠ Cleaned invalid UTF-8 characters"
-        continue
+        converted=true
     fi
 
-    echo "   ❌ Could not convert: $file"
-    rm -f "$tmp"
-done
+    if [ "$converted" = false ]; then
+        echo "   ❌ Could not convert: $file"
+    fi
+
+done < <(find "$TARGET_DIR" -type f -print0)
 
 echo "--------------------------------"
 echo "✅ Done"
